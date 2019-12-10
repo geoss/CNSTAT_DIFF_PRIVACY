@@ -65,3 +65,9 @@ yarn-debug.log*
 # Ignore uploaded files in development
 /storage/*
 !/storage/.keep
+
+# ignore R stuff
+.Rhistory
+
+# ignore powerpoints
+.pptx

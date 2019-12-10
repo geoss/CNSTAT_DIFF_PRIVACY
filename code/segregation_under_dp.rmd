@@ -1,0 +1,246 @@
+---
+title: "Segregation under differential privacy"
+author: "David Van Riper"
+date: "12/4/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(here)
+library(OasisR)
+library(sf)
+
+# Constants
+data_path <- here("data/")
+
+```
+
+```{r create_tract_cbsa_crosswalk, echo=FALSE}
+
+# load nhgis extract to create tract to CBSA crosswalk 
+tct_cbsa_xwalk <- read_csv(paste0(data_path, "nhgis1263_ds172_2010_tract.csv"), 
+                           col_types = "ccccccccccccccccccccccccccccccccccccccci")
+
+# join type to xwalk and then keep only gisjoin, cbsa and type
+tct_cbsa_xwalk <- tct_cbsa_xwalk %>%
+  select(GISJOIN, CBSAA)
+
+```
+
+```{r create_cbsa_type_df, echo=FALSE}
+
+# This chunk creates a small df that classifies each CBSA into micro vs. metro area
+
+# assign type (micro vs. metro) to each CBSAA
+cbsa_type <- read_csv(paste0(data_path, "wide_dp1_310.csv"))
+cbsa_type <- cbsa_type %>%
+  mutate(CBSAA = str_sub(gisjoin, 2,6),
+         type = case_when(str_detect(name_dp, "Micro") ~ "Micro",
+                          str_detect(name_dp, "Metro") ~ "Metro")) %>%
+  select(CBSAA, type)
+```
+
+
+```{r load_dp_sf1_data, echo=FALSE}
+
+# load wide_dp1_140.csv into df 
+df <- read_csv(paste0(data_path, "wide_dp1_140.csv"))
+
+```
+
+```{r keep_required_df_columns, echo=FALSE}
+#This chunk retains necessary columns for segregation computation. I only need to keep the P5 variables (H7Z* variables).
+
+pop_data <- df %>%
+  mutate(dp_totpop = H7Z001_dp,
+         dp_white = H7Z003_dp,
+         dp_black = H7Z004_dp,
+         dp_other = H7Z005_dp + H7Z006_dp + H7Z007_dp + H7Z008_dp + H7Z009_dp,
+         dp_hisp = H7Z010_dp,
+         sf_totpop = H7Z001_sf,
+         sf_white = H7Z003_sf,
+         sf_black = H7Z004_sf,
+         sf_other = H7Z005_sf + H7Z006_sf + H7Z007_sf + H7Z008_sf + H7Z009_sf,
+         sf_hisp = H7Z010_sf) %>%
+  select(gisjoin, dp_totpop:sf_hisp)
+```
+
+```{r join_tct_cbsa_xwalk_to_pop_data, echo=FALSE}
+
+# This chunk joins the tct_cbsa crosswalk to the pop_data df
+pop_data <- pop_data %>%
+  left_join(tct_cbsa_xwalk, by=c("gisjoin" = "GISJOIN"))
+
+```
+
+```{r generate_list_unique_cbsa_codes, echo=FALSE}
+
+# This chunk creates a list (vector) of unique CBSAs. I will use it to loop over all CBSAs to compute seg indices
+
+cbsa <- pop_data %>%
+  filter(CBSAA != "99999") %>%
+  distinct(CBSAA) 
+
+cbsa_list <- cbsa$CBSAA
+
+```
+
+
+```{r load_shapefile_as_sf, echo=FALSE}
+
+# This chunk reads in the tract shapefile as a sf object
+
+tct <- st_read(paste0(data_path, "US_tract_2010.shp"))
+```
+
+```{r join_pop_data_to_sf, echo=FALSE}
+
+# This chunk joins the pop_data df to the shapfile
+
+tct <- tct %>%
+  left_join(pop_data, by=c("GISJOIN" = "gisjoin"))
+
+```
+
+```{r loop_over_cbsa_list, echo=FALSE}
+
+dp_multiseg <- data.frame(dp_r = numeric(),
+                          dp_d = numeric(),
+                          dp_h = numeric(),
+                          stringsAsFactors = FALSE)
+sf_multiseg <- data.frame(sf_r = numeric(),
+                          sf_d = numeric(),
+                          sf_h = numeric(),
+                          stringsAsFactors = FALSE)
+
+for(i in cbsa_list){
+  
+  # filter for CBSAA == i
+  x <- tct %>%
+    filter(CBSAA == i)
+  
+  # convert sf obj to SpatialPolyDataFrame
+  x_spdf <- as(x, "Spatial")
+  
+  # generate contiguity matrix (rook is default contiguity optio)
+  x_contiguity <- contig(x_spdf)
+  
+  # generate dfs with four mutually exclusive pop groups for dp and sf
+  dp_four <- x_spdf@data[ ,17:20]
+  sf_four <- x_spdf@data[ ,22:25]
+  
+  dp_sp_multiseg <- spatmultiseg(dp_four, x_spdf)
+  sf_sp_multiseg <- spatmultiseg(sf_four, x_spdf)
+
+  dp_multi_h <- HMulti(dp_four)
+  sf_multi_h <- HMulti(sf_four)
+  
+  d <- setNames(dp_sp_multiseg, names(dp_multiseg))
+  dp_multiseg <- bind_rows(dp_multiseg, d)
+  
+  s <- setNames(sf_sp_multiseg, names(sf_multiseg))
+  sf_multiseg <- bind_rows(sf_multiseg, s)
+
+
+  # DIDuncan(dp_four)
+  # DIDuncan(sf_four)
+  # DIMorrill(dp_four, x_contiguity)
+  # DIMorrill(sf_four, x_contiguity)
+  
+}
+
+```
+
+```{r join_cbsa_codes_to_seg_output, echo=FALSE}
+
+# This chunk cbinds the cbsa codes to the dfs containing the segregation output
+dp_multiseg <- cbind(dp_multiseg, cbsa)
+sf_multiseg <- cbind(sf_multiseg, cbsa)
+```
+
+```{r join_dp_sf_seg_output, echo=FALSE}
+
+# join dp_multiseg values to sf_multiseg values
+seg_output <- left_join(sf_multiseg, dp_multiseg, by="CBSAA")
+
+```
+
+```{r join_cbsa_type, echo=FALSE}
+
+# This chunk joins the cbsa_type (metro vs. micro) to the seg_output
+seg_output <- left_join(seg_output, cbsa_type, by="CBSAA")
+```
+
+
+```{r plot_seg_output, echo=FALSE}
+
+seg_output %>%
+  ggplot() +
+  geom_point(mapping = aes(x = sf_h, y = dp_h, color=type))
+
+seg_output %>%
+  ggplot() +
+  geom_point(mapping = aes(x = sf_d, y = dp_d, color=type))
+
+seg_output %>%
+  ggplot() +
+  geom_point(mapping = aes(x = sf_r, y = dp_r, color=type))
+
+
+```
+
+
+```{r convert_sf_to_spatialpolygondataframe, echo=FALSE}
+
+# This chunk converts a small portion of tct sf to a SpatialPolygonDataFrame object
+
+# test - select Twin Cities MA tracts into a sf 
+tcma <- tct %>%
+  filter(CBSAA == "33460")
+
+# convert the tcma sf object to a SpatialPolygonsDF
+tcma_spdf <- as(tcma, "Spatial")
+
+# test - select Brookings Micro tracts into a sf 
+brkma <- tct %>%
+  filter(CBSAA == "15100")
+
+# convert the tcma sf object to a SpatialPolygonsDF
+brkma_spdf <- as(brkma, "Spatial")
+
+
+```
+
+```{r compute_seg_indices_test, echo=FALSE}
+
+# This chunk tries (!!!) to compute segregation indices from data in the tcma_spdf
+
+dp_white_black <- brkma_spdf@data[ ,17:18]
+sf_white_black <- brkma_spdf@data[ ,22:23]
+
+dp_four <- brkma_spdf@data[ ,17:20]
+sf_four <- brkma_spdf@data[ ,22:25]
+
+#tcma contiguity  
+brkma_contiguity <- contig(brkma_spdf)
+
+DIMorrill(dp_white_black, brkma_contiguity)
+DIMorrill(sf_white_black, brkma_contiguity)
+
+spatmultiseg(dp_white_black, brkma_spdf)
+spatmultiseg(sf_white_black, brkma_spdf)
+
+DIDuncan(dp_white_black)
+DIDuncan(sf_white_black)
+
+spatmultiseg(dp_four, brkma_spdf)
+spatmultiseg(sf_four, brkma_spdf)
+
+brkhmulti_dp <- HMulti(dp_four)
+brkhmulti_sf <- HMulti(sf_four)
+
+```
+
+
