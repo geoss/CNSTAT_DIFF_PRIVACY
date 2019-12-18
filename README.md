@@ -3,7 +3,7 @@ Analyses by Spielman and Van Riper for the December 2019 [Workshop on 2020 Censu
 
 Our slides are [here](https://www.dropbox.com/s/b85pkmibuz9gxp1/CNSTAT%20Presentation%202019_DVR_SS_121019.pptx?dl=0) (on Dropbox).  Note that this repository does not include code for the "off-spine" geographies described in the presentation.
 
-In general this repository is a mess, it was rapidly constructed for the workshop, it contains the following code and data:
+***In general this repository is a mess***, it was rapidly constructed for the workshop, it contains the following code and data:
 
 ## Data
 1.  **Input** A National File containing all census tracts, their original 2010 Decennial Census estimates, and their corresponding estimates from 2010 Differential Privacy Demonstration Data.
