@@ -1,0 +1,16 @@
+import pandas as pd
+
+national_file = pd.read_csv('national_blocks_june_dp.csv')
+
+#What percent of blocks appear more diverse simply because of DP?
+national_file['total_not_white_sf'] = national_file.H72001_sf - national_file.H72003_sf
+national_file['total_not_white_dp'] = national_file.H72001_dp - national_file.H72003_dp
+
+#gained diversity
+sum(national_file['total_not_white_dp'] > national_file['total_not_white_sf'])/len(national_file) #23% of all blocks are more diverse because of DP
+
+#lost diversity
+sum(national_file['total_not_white_dp'] < national_file['total_not_white_sf'])/len(national_file) #16% of all blocks are less diverse because of DP
+
+#gained including hispanic
+sum((national_file['total_not_white_dp'] > national_file['total_not_white_sf']) | (national_file['H73002_dp'] > national_file['H73002_sf']))/len(national_file) #30% more diverse
